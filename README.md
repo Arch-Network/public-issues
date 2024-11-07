@@ -11,6 +11,6 @@ Choose an issue template that fits your need and follow the guidelines, providin
 For additional support, please visit our [Discord dev chat].
 
 [issues tab]: https://github.com/Arch-Network/public-issues/issues
-[Bug report]: https://github.com/arch-network/public-issues/blob/main/.github/ISSUE_TEMPLATE/BUG-REPORT.md
-[Generic issue]: https://github.com/arch-network/public-issues/blob/main/.github/ISSUE_TEMPLATE/GENERIC-ISSUE.md
+[Bug report]: https://github.com/Arch-Network/public-issues/issues/new?assignees=&labels=&projects=&template=BUG-REPORT.md
+[Generic issue]: https://github.com/Arch-Network/public-issues/issues/new?assignees=&labels=&projects=&template=GENERIC-ISSUE.md
 [Discord dev chat]: https://discord.com/channels/1241112027963986001/1270921925991989268

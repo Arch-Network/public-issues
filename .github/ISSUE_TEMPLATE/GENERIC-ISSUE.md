@@ -1,5 +1,5 @@
 ---
-name: Generic Issue Template
+name: Generic
 about: Create a generic issue with a description
 ---
 
