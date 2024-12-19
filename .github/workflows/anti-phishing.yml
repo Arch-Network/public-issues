@@ -37,12 +37,21 @@ jobs:
             } else if (context.payload.pull_request) {
               body = context.payload.pull_request.body;
               number = context.payload.pull_request.number;
+            } else if (context.payload.comment && context.eventName === 'issue_comment') {
+              body = context.payload.comment.body;
+              number = context.payload.issue.number;
             } else if (context.payload.comment) {
               body = context.payload.comment.body;
               number = context.payload.issue ? context.payload.issue.number : context.payload.pull_request.number;
+            } else if (context.payload.review_comment) {
+              body = context.payload.review_comment.body;
+              number = context.payload.pull_request.number;
             }
 
-            if (!body) return;
+            if (!body) {
+              console.log('No body found in payload:', context.payload);
+              return;
+            }
             
             // List of allowed domains
             const allowedDomains = [
