@@ -114,6 +114,6 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: number,
-                labels: ['suspicious-links']
+                labels: ['may-contain-suspicious-links']
               });
             }
