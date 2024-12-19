@@ -1,0 +1,69 @@
+name: Anti-Phishing Check
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  check-links:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for suspicious links
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue ? context.payload.issue.body : context.payload.comment.body;
+            
+            // List of allowed domains
+            const allowedDomains = [
+              'github.com',
+              'githubusercontent.com',
+              'arch.network'
+            ];
+            
+            // Regular expression to find URLs
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const urls = body.match(urlRegex) || [];
+            
+            let suspiciousUrls = [];
+            urls.forEach(url => {
+              try {
+                const domain = new URL(url).hostname;
+                if (!allowedDomains.some(allowed => domain.endsWith(allowed))) {
+                  suspiciousUrls.push(url);
+                }
+              } catch (e) {
+                suspiciousUrls.push(url);
+              }
+            });
+            
+            if (suspiciousUrls.length > 0) {
+              const warning = `⚠️ This issue/comment contains potentially suspicious links:\n${suspiciousUrls.join('\n')}\n\nPlease review these links carefully.`;
+              
+              // Add warning comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: warning
+              });
+              
+              // Add warning label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                labels: ['suspicious-links']
+              });
+            }
