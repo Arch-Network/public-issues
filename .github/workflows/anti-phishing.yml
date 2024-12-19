@@ -5,7 +5,7 @@ on:
     types: [opened, edited]
   issue_comment:
     types: [created, edited]
-  pull_request_comment:
+  pull_request_review_comment:
     types: [created, edited]
   pull_request:
     types: [opened, edited]
