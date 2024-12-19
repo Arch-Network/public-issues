@@ -9,6 +9,8 @@ on:
     types: [created, edited]
   pull_request:
     types: [opened, edited]
+  pull_request_target:
+    types: [opened, edited]
 
 permissions:
   contents: read
@@ -18,6 +20,7 @@ permissions:
 jobs:
   check-links:
     runs-on: ubuntu-latest
+    if: ${{ !github.event.issue.pull_request }}  # Only run on regular issues, not pull requests
 
     steps:
       - name: Checkout repository
@@ -33,21 +36,27 @@ jobs:
             // Determine the context (issue, PR, or comment)
             let body;
             let number;
+            let type;
             
             if (context.eventName === 'issue_comment') {
               body = context.payload.comment.body;
               number = context.payload.issue.number;
+              type = context.payload.issue.pull_request ? 'pull request' : 'issue';
             } else if (context.payload.issue) {
               body = context.payload.issue.body;
               number = context.payload.issue.number;
+              type = 'issue';
             } else if (context.payload.pull_request) {
               body = context.payload.pull_request.body;
               number = context.payload.pull_request.number;
+              type = 'pull request';
             } else if (context.payload.review_comment) {
               body = context.payload.review_comment.body;
               number = context.payload.pull_request.number;
+              type = 'pull request';
             }
 
+            console.log('Event type:', type);
             console.log('Extracted body:', body);
             console.log('Extracted number:', number);
             
@@ -63,32 +72,37 @@ jobs:
               'arch.network'
             ];
             
-            // Regular expression to find URLs
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            const urls = body.match(urlRegex) || [];
+            // Regular expression to find URLs - improved to catch URLs that end with periods
+            const urlRegex = /(https?:\/\/[^\s]+?)(?:\.(?:\s|$)|\s|$)/g;
+            const matches = body.matchAll(urlRegex);
+            const urls = Array.from(matches).map(match => {
+              // Remove trailing period if present
+              let url = match[1];
+              if (url.endsWith('.')) {
+                url = url.slice(0, -1);
+              }
+              return url;
+            });
             
             let suspiciousUrls = [];
             urls.forEach(url => {
               try {
-                const domain = new URL(url).hostname;
-                if (!allowedDomains.some(allowed => domain.endsWith(allowed))) {
+                const domain = new URL(url).hostname.toLowerCase();
+                console.log('Checking domain:', domain);
+                if (!allowedDomains.some(allowed => domain.endsWith(allowed.toLowerCase()))) {
                   suspiciousUrls.push(url);
                 }
               } catch (e) {
+                console.log('Error parsing URL:', e);
                 suspiciousUrls.push(url);
               }
             });
             
             if (suspiciousUrls.length > 0) {
-              const warning = `⚠️ This ${context.payload.pull_request ? 'pull request' : 'issue'}/comment contains potentially suspicious links:\n${suspiciousUrls.join('\n')}\n\nPlease review these links carefully.`;
-              
-              // Function to create comment
-              const createComment = context.payload.pull_request ? 
-                github.rest.issues.createComment : 
-                github.rest.issues.createComment;
+              const warning = `⚠️ This ${type}/comment contains potentially suspicious links:\n${suspiciousUrls.join('\n')}\n\nPlease review these links carefully.`;
               
               // Add warning comment
-              await createComment({
+              await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: number,
@@ -96,11 +110,7 @@ jobs:
               });
               
               // Add warning label
-              const addLabels = context.payload.pull_request ?
-                github.rest.issues.addLabels :
-                github.rest.issues.addLabels;
-              
-              await addLabels({
+              await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: number,
