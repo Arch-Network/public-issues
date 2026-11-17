@@ -1,0 +1,148 @@
+name: Spam guard
+
+# Hides wallet-recovery scam replies. The link checker only flags off-domain
+# URLs, and the current wave (KeyBack and the same script) posts no link.
+# Trusted authors are left alone. A hidden comment can be unhidden.
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hide wallet-recovery spam
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR'])
+            const MAX_AGE_DAYS = 90
+
+            // Explicit solicitation script. One hit is enough.
+            const STRONG = [
+              /keyback/i,
+              /wallet\s+recovery/i,
+              /recover(?:ed|ing)?\s+your\s+(?:wallet|funds|seed|account|crypto|tokens|assets)/i,
+              /i can help(?: you)? recover/i,
+              /recovery\s+(?:service|expert|agent|specialist|team)/i,
+              /came across your post/i,
+              /did you(?: ever)? manage to recover/i,
+              /still locked out/i,
+            ]
+
+            // Reworded variants. Two hits, from a young non-author, on a comment.
+            const SOFT = [
+              /\brecover(?:y|ed|ing)?\b/i,
+              /locked out/i,
+              /(?:lost|losing) access/i,
+              /switch(?:ed|ing)\s+(?:phones?|devices?)/i,
+            ]
+
+            const isComment = context.eventName === 'issue_comment'
+            const issue = context.payload.issue
+            const comment = context.payload.comment
+            const actor = isComment ? comment.user : issue.user
+            const association = isComment ? comment.author_association : issue.author_association
+            const text = isComment
+              ? (comment.body || '')
+              : `${issue.title || ''}\n${issue.body || ''}`
+
+            if (!text.trim()) {
+              core.info('No text to check')
+              return
+            }
+            if (actor.type === 'Bot' || actor.login.endsWith('[bot]')) {
+              core.info(`Skipping bot ${actor.login}`)
+              return
+            }
+            if (TRUSTED.has(association)) {
+              core.info(`Skipping trusted author ${actor.login} (${association})`)
+              return
+            }
+
+            const strong = STRONG.filter((re) => re.test(text)).map((re) => re.source)
+            const soft = SOFT.filter((re) => re.test(text)).map((re) => re.source)
+            const isIssueAuthor = actor.login === issue.user.login
+
+            let ageDays = null
+            try {
+              const user = await github.rest.users.getByUsername({ username: actor.login })
+              ageDays = (Date.now() - new Date(user.data.created_at).getTime()) / 86400000
+            } catch (error) {
+              core.warning(`Could not read account age for ${actor.login}: ${error.message}`)
+            }
+            const young = ageDays !== null && ageDays < MAX_AGE_DAYS
+
+            // Victim reports ("I lost my wallet") stay open. Only a comment that
+            // looks like the recovery reply, or an issue that is itself the pitch,
+            // is acted on.
+            const spam = strong.length > 0 || (
+              isComment && !isIssueAuthor && young && soft.length >= 2
+            )
+            core.info(JSON.stringify({
+              actor: actor.login,
+              association,
+              ageDays: ageDays === null ? null : Math.round(ageDays),
+              strong,
+              soft,
+              spam,
+            }))
+            if (!spam) return
+
+            const { owner, repo } = context.repo
+
+            if (isComment) {
+              await github.graphql(
+                `mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: SPAM}) {
+                    minimizedComment { isMinimized }
+                  }
+                }`,
+                { id: comment.node_id }
+              )
+              core.notice(`Hid comment ${comment.id} on #${issue.number} as spam`)
+            } else {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'not_planned',
+              })
+              try {
+                await github.rest.issues.lock({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  lock_reason: 'spam',
+                })
+              } catch (error) {
+                if (error.status !== 422) throw error
+              }
+              core.notice(`Closed and locked #${issue.number} as spam`)
+            }
+
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: 'suspected-spam' })
+            } catch (error) {
+              if (error.status !== 404) throw error
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: 'suspected-spam',
+                color: 'b60205',
+                description: 'Wallet-recovery solicitation hidden by spam-guard',
+              })
+            }
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: issue.number,
+              labels: ['suspected-spam'],
+            })
